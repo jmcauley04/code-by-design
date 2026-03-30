@@ -10,7 +10,6 @@ interface AppState {
   // Selected node
   selectedNodeId: string | null;
   setSelectedNodeId: (id: string | null) => void;
-  selectedNode: FileNode | null;
 
   // Layers
   activeLayers: Set<ActiveLayer>;
@@ -53,11 +52,6 @@ export const useStore = create<AppState>((set, get) => ({
 
   selectedNodeId: null,
   setSelectedNodeId: (id) => set({ selectedNodeId: id, nodePanelOpen: !!id }),
-  get selectedNode() {
-    const state = get();
-    if (!state.selectedNodeId || !state.project) return null;
-    return state.project.files.find((f) => f.id === state.selectedNodeId) || null;
-  },
 
   activeLayers: new Set<ActiveLayer>(['fileRefs']),
   toggleLayer: (layer) =>

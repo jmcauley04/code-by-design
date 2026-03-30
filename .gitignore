@@ -1,5 +1,14 @@
 node_modules/
 dist/
+build/
 .env
 .env.local
 *.local
+*.log
+npm-debug.log*
+.DS_Store
+.vscode/
+.idea/
+*.tsbuildinfo
+frontend/dist/
+backend/dist/

@@ -7,7 +7,18 @@ import { FILE_TYPE_COLORS, FILE_TYPE_LABELS, getFileIcon, formatFileSize } from 
 type PanelTab = 'metadata' | 'functions' | 'code';
 
 const NodePanel: React.FC = () => {
-  const { selectedNode, setSelectedNodeId, updateNode, settings, nodePanelOpen, setNodePanelOpen } = useStore();
+  const selectedNodeId = useStore((s) => s.selectedNodeId);
+  const selectedNode = useStore((s) =>
+    s.selectedNodeId && s.project
+      ? s.project.files.find((f) => f.id === s.selectedNodeId) || null
+      : null
+  );
+  const setSelectedNodeId = useStore((s) => s.setSelectedNodeId);
+  const updateNode = useStore((s) => s.updateNode);
+  const settings = useStore((s) => s.settings);
+  const nodePanelOpen = useStore((s) => s.nodePanelOpen);
+  const setNodePanelOpen = useStore((s) => s.setNodePanelOpen);
+  void selectedNodeId;
   const [activeTab, setActiveTab] = useState<PanelTab>('metadata');
   const [code, setCode] = useState('');
   const [loadingCode, setLoadingCode] = useState(false);
