@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useEffect } from 'react';
+import React, { useCallback, useEffect } from 'react';
 import {
   ReactFlow,
   Background,
@@ -19,7 +19,6 @@ import '@xyflow/react/dist/style.css';
 import { useStore } from '../../store/useStore.js';
 import CustomNode, { type CustomNodeType } from './CustomNode.js';
 import { computeAutoLayout, FILE_TYPE_COLORS } from '../../utils/nodeUtils.js';
-import type { LayerType } from '../../types/index.js';
 
 const nodeTypes: NodeTypes = {
   fileNode: CustomNode as unknown as NodeTypes['fileNode'],
@@ -99,14 +98,8 @@ const Canvas: React.FC = () => {
     }
 
     if (activeLayers.has('functions')) {
-      // Show function call relationships (same-file functions calling each other)
-      for (const file of project.files) {
-        for (let i = 0; i < file.functions.length - 1; i++) {
-          const fnEdgeId = `fn-${file.id}-${i}`;
-          // Just show function count indicators, not actual edges
-          void fnEdgeId;
-        }
-      }
+      // Function-level connections: currently shown as metadata on nodes
+      // Future: add explicit function-call edges here
     }
 
     setEdges(reactFlowEdges);
@@ -125,24 +118,6 @@ const Canvas: React.FC = () => {
       }))
     );
   }, [selectedNodeId, setNodes]);
-
-  const layerBands = useMemo(() => {
-    if (!project) return [];
-    const byLayer: Record<string, { minY: number; maxY: number; layer: LayerType }> = {};
-    for (const file of project.files) {
-      const pos = nodePositions[file.id];
-      if (!pos) continue;
-      if (!byLayer[file.layer]) {
-        byLayer[file.layer] = { minY: pos.y, maxY: pos.y + 80, layer: file.layer };
-      } else {
-        byLayer[file.layer].minY = Math.min(byLayer[file.layer].minY, pos.y);
-        byLayer[file.layer].maxY = Math.max(byLayer[file.layer].maxY, pos.y + 80);
-      }
-    }
-    return Object.values(byLayer);
-  }, [project, nodePositions]);
-
-  void layerBands;
 
   if (!project) {
     return (
