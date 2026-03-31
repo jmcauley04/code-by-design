@@ -1,11 +1,13 @@
 import { create } from 'zustand';
-import type { ProjectInfo, FileNode, ActiveLayer, AppSettings } from '../types/index.js';
+import type { ProjectInfo, FileNode, FileEdge, ActiveLayer, AppSettings } from '../types/index.js';
 
 interface AppState {
   // Project
   project: ProjectInfo | null;
   setProject: (project: ProjectInfo | null) => void;
   updateNode: (nodeId: string, updates: Partial<FileNode>) => void;
+  addNode: (node: FileNode) => void;
+  setEdges: (edges: FileEdge[]) => void;
 
   // Selected node
   selectedNodeId: string | null;
@@ -48,6 +50,23 @@ export const useStore = create<AppState>((set, get) => ({
           ),
         },
       };
+    }),
+  addNode: (node) =>
+    set((state) => {
+      if (!state.project) return state;
+      // Avoid duplicates
+      if (state.project.files.some((f) => f.id === node.id)) return state;
+      return {
+        project: {
+          ...state.project,
+          files: [...state.project.files, node],
+        },
+      };
+    }),
+  setEdges: (edges) =>
+    set((state) => {
+      if (!state.project) return state;
+      return { project: { ...state.project, edges } };
     }),
 
   selectedNodeId: null,

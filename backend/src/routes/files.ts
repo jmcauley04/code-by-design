@@ -1,7 +1,9 @@
 import { Router, Request, Response } from 'express';
+import fs from 'fs';
 import path from 'path';
 import { readProjectFiles, buildEdges, readFileContent, writeFileContent, getDirectoryTree } from '../services/fileService.js';
 import { analyzeFile } from '../services/analyzeService.js';
+import { generateFileContent } from '../services/generateService.js';
 
 export const filesRouter = Router();
 
@@ -87,6 +89,69 @@ filesRouter.post('/content', (req: Request, res: Response) => {
     res.json({ success: true, node: updated });
   } catch (error) {
     res.status(500).json({ error: `Failed to write file: ${(error as Error).message}` });
+  }
+});
+
+filesRouter.post('/create', (req: Request, res: Response) => {
+  const { rootPath, filePath, language, framework } = req.body as {
+    rootPath: string;
+    filePath: string;       // relative path within the project, e.g. "src/services/UserService.ts"
+    language?: string;
+    framework?: string;
+  };
+
+  if (!rootPath || !filePath) {
+    res.status(400).json({ error: 'rootPath and filePath are required' });
+    return;
+  }
+
+  try {
+    // Resolve both paths absolutely so path-traversal sequences are collapsed
+    const resolvedRoot = path.resolve(rootPath);
+    // filePath must be treated as relative; reject any path that would escape
+    // the project root (e.g. "/etc/passwd" or "../../outside")
+    const absolutePath = path.resolve(resolvedRoot, filePath);
+
+    if (!absolutePath.startsWith(resolvedRoot + path.sep) && absolutePath !== resolvedRoot) {
+      res.status(400).json({ error: 'filePath must be inside the project root' });
+      return;
+    }
+
+    const ext = path.extname(filePath).toLowerCase();
+    const langMap: Record<string, string> = {
+      '.ts': 'typescript', '.tsx': 'typescript', '.js': 'javascript',
+      '.jsx': 'javascript', '.mjs': 'javascript', '.py': 'python',
+      '.java': 'java', '.cs': 'csharp', '.go': 'go', '.rs': 'rust',
+      '.rb': 'ruby', '.php': 'php', '.vue': 'vue', '.svelte': 'svelte',
+      '.css': 'css', '.scss': 'scss', '.html': 'html',
+    };
+    const detectedLanguage = language || langMap[ext] || 'typescript';
+    const detectedFramework = framework || detectedLanguage;
+
+    // Analyse the path (file doesn't exist yet) to infer type / layer
+    const relativePath = path.relative(resolvedRoot, absolutePath);
+    const stubNode = analyzeFile('', relativePath, detectedLanguage);
+
+    // Generate starter content from the template
+    const content = generateFileContent(stubNode, detectedLanguage, detectedFramework);
+
+    if (fs.existsSync(absolutePath)) {
+      res.status(409).json({ error: `File already exists: ${relativePath}` });
+      return;
+    }
+
+    writeFileContent(absolutePath, content);
+
+    // Re-analyse from disk so the returned node has accurate content/size
+    const node = analyzeFile(absolutePath, relativePath, detectedLanguage);
+
+    // Re-compute edges for the whole project so new relationships are included
+    const allFiles = readProjectFiles(resolvedRoot);
+    const edges = buildEdges(allFiles);
+
+    res.status(201).json({ node, edges });
+  } catch (error) {
+    res.status(500).json({ error: `Failed to create file: ${(error as Error).message}` });
   }
 });
 
