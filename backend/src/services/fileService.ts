@@ -70,19 +70,10 @@ function traverseDirectory(rootPath: string, dirPath: string, files: FileNode[])
 
 export function buildEdges(files: FileNode[]): FileEdge[] {
   const edges: FileEdge[] = [];
-  const fileMap = new Map<string, FileNode>();
-
-  for (const file of files) {
-    fileMap.set(file.path, file);
-    const basename = path.basename(file.path, path.extname(file.path));
-    fileMap.set(basename.toLowerCase(), file);
-    fileMap.set(file.name.toLowerCase(), file);
-  }
 
   for (const file of files) {
     for (const importPath of file.imports) {
-      const normalized = normalizeImport(importPath);
-      const target = findTargetFile(normalized, file.path, files);
+      const target = findTargetFile(importPath, file.path, files);
       if (target && target.id !== file.id) {
         const edgeId = `${file.id}->${target.id}`;
         if (!edges.find(e => e.id === edgeId)) {
@@ -100,32 +91,94 @@ export function buildEdges(files: FileNode[]): FileEdge[] {
   return edges;
 }
 
-function normalizeImport(importPath: string): string {
-  return importPath.replace(/['"]/g, '').replace(/^@\//, '').trim();
-}
-
+/**
+ * Attempt to resolve an import string to a project FileNode.
+ *
+ * Resolution rules (in priority order):
+ *  1. Relative imports (start with ".") → resolve against the source file's
+ *     directory using the exact normalised path + common extension suffixes.
+ *  2. Alias imports (start with "@/") → resolve against every likely source
+ *     root ("src/", "") with the same extension probing.
+ *  3. Bare imports without a "/" (e.g. "react", "express") are third-party
+ *     packages and are intentionally ignored.
+ *  4. Slash-containing non-relative paths (e.g. "services/user") → try a
+ *     name-only fallback as a last resort.
+ *
+ * Name-only fallback is only used when the basename is non-trivial (not
+ * "index") to avoid false positives from ambiguous barrel exports.
+ */
 function findTargetFile(importPath: string, sourceFile: string, files: FileNode[]): FileNode | undefined {
-  const sourceDir = path.dirname(sourceFile);
-  const candidates: string[] = [];
+  // Strip inline quotes that sometimes survive the regex extraction
+  const raw = importPath.replace(/['"]/g, '').trim();
+  if (!raw) return undefined;
 
-  if (importPath.startsWith('.')) {
-    const resolved = path.join(sourceDir, importPath);
-    candidates.push(resolved);
-    for (const ext of ['.ts', '.tsx', '.js', '.jsx', '.vue', '.svelte']) {
-      candidates.push(resolved + ext);
-      candidates.push(path.join(resolved, 'index' + ext));
+  const EXTS = ['.ts', '.tsx', '.js', '.jsx', '.mjs', '.vue', '.svelte'];
+
+  // ── Helper: resolve a base path against the file list ──────────────────────
+  function resolveBase(base: string): FileNode | undefined {
+    const normalised = path.normalize(base);
+    // 1. Exact match
+    const exact = files.find(f => path.normalize(f.path) === normalised);
+    if (exact) return exact;
+    // 2. Match with extension appended
+    for (const ext of EXTS) {
+      const withExt = files.find(f => path.normalize(f.path) === path.normalize(base + ext));
+      if (withExt) return withExt;
     }
+    // 3. Match as a directory index
+    for (const ext of EXTS) {
+      const asIndex = files.find(f => path.normalize(f.path) === path.normalize(path.join(base, 'index' + ext)));
+      if (asIndex) return asIndex;
+    }
+    return undefined;
   }
 
-  const importName = path.basename(importPath).toLowerCase();
-  for (const file of files) {
-    const fileName = path.basename(file.path, path.extname(file.path)).toLowerCase();
-    if (fileName === importName) return file;
+  // ── 1. Relative import ─────────────────────────────────────────────────────
+  if (raw.startsWith('.')) {
+    const sourceDir = path.dirname(sourceFile);
+    // Remove any extension on the import so we can probe all extensions
+    const withoutExt = raw.replace(/\.(ts|tsx|js|jsx|mjs|vue|svelte)$/, '');
+    const resolved = resolveBase(path.join(sourceDir, withoutExt));
+    if (resolved) return resolved;
+    // Fallback: name-only match for non-index basenames (handles monorepos
+    // where the relative path root differs from the on-disk root)
+    const baseName = path.basename(withoutExt).toLowerCase();
+    if (baseName && baseName !== 'index') {
+      return files.find(f => {
+        const fn = path.basename(f.path, path.extname(f.path)).toLowerCase();
+        return fn === baseName;
+      });
+    }
+    return undefined;
   }
 
-  for (const candidate of candidates) {
-    const match = files.find(f => f.path === candidate || path.resolve(f.path) === path.resolve(candidate));
-    if (match) return match;
+  // ── 2. Alias import (e.g. "@/components/Button") ──────────────────────────
+  if (raw.startsWith('@/')) {
+    const withoutAlias = raw.slice(2).replace(/\.(ts|tsx|js|jsx|mjs|vue|svelte)$/, '');
+    for (const srcRoot of ['src/', '']) {
+      const resolved = resolveBase(path.join(srcRoot, withoutAlias));
+      if (resolved) return resolved;
+    }
+    return undefined;
+  }
+
+  // ── 3. Bare package import (no "/" in the name) → skip ────────────────────
+  if (!raw.includes('/')) return undefined;
+
+  // ── 4. Slash path without "./" prefix (internal path alias, e.g.
+  //        "components/Button" or "services/user") ──────────────────────────
+  const withoutExt = raw.replace(/\.(ts|tsx|js|jsx|mjs|vue|svelte)$/, '');
+  for (const srcRoot of ['src/', '']) {
+    const resolved = resolveBase(path.join(srcRoot, withoutExt));
+    if (resolved) return resolved;
+  }
+  // Last-resort name match (only for non-index)
+  const baseName = path.basename(withoutExt).toLowerCase();
+  if (baseName && baseName !== 'index') {
+    return files.find(f => {
+      const fn = path.basename(f.path, path.extname(f.path)).toLowerCase();
+      return fn === baseName;
+    });
   }
 
   return undefined;

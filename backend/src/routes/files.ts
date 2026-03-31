@@ -1,7 +1,9 @@
 import { Router, Request, Response } from 'express';
+import fs from 'fs';
 import path from 'path';
 import { readProjectFiles, buildEdges, readFileContent, writeFileContent, getDirectoryTree } from '../services/fileService.js';
 import { analyzeFile } from '../services/analyzeService.js';
+import { generateFileContent } from '../services/generateService.js';
 
 export const filesRouter = Router();
 
@@ -87,6 +89,65 @@ filesRouter.post('/content', (req: Request, res: Response) => {
     res.json({ success: true, node: updated });
   } catch (error) {
     res.status(500).json({ error: `Failed to write file: ${(error as Error).message}` });
+  }
+});
+
+filesRouter.post('/create', (req: Request, res: Response) => {
+  const { rootPath, filePath, language, framework } = req.body as {
+    rootPath: string;
+    filePath: string;       // relative path within the project, e.g. "src/services/UserService.ts"
+    language?: string;
+    framework?: string;
+  };
+
+  if (!rootPath || !filePath) {
+    res.status(400).json({ error: 'rootPath and filePath are required' });
+    return;
+  }
+
+  try {
+    const ext = path.extname(filePath).toLowerCase();
+    const langMap: Record<string, string> = {
+      '.ts': 'typescript', '.tsx': 'typescript', '.js': 'javascript',
+      '.jsx': 'javascript', '.mjs': 'javascript', '.py': 'python',
+      '.java': 'java', '.cs': 'csharp', '.go': 'go', '.rs': 'rust',
+      '.rb': 'ruby', '.php': 'php', '.vue': 'vue', '.svelte': 'svelte',
+      '.css': 'css', '.scss': 'scss', '.html': 'html',
+    };
+    const detectedLanguage = language || langMap[ext] || 'typescript';
+    const detectedFramework = framework || detectedLanguage;
+
+    // Analyse the path (file doesn't exist yet) to infer type / layer
+    const stubNode = analyzeFile('', filePath, detectedLanguage);
+
+    // Generate starter content from the template
+    const content = generateFileContent(stubNode, detectedLanguage, detectedFramework);
+
+    // Write the new file to disk
+    const absolutePath = path.isAbsolute(filePath)
+      ? filePath
+      : path.join(rootPath, filePath);
+
+    if (fs.existsSync(absolutePath)) {
+      res.status(409).json({ error: `File already exists: ${filePath}` });
+      return;
+    }
+
+    writeFileContent(absolutePath, content);
+
+    // Re-analyse from disk so the returned node has accurate content/size
+    const relativePath = path.isAbsolute(filePath)
+      ? path.relative(rootPath, filePath)
+      : filePath;
+    const node = analyzeFile(absolutePath, relativePath, detectedLanguage);
+
+    // Re-compute edges for the whole project so new relationships are included
+    const allFiles = readProjectFiles(rootPath);
+    const edges = buildEdges(allFiles);
+
+    res.status(201).json({ node, edges });
+  } catch (error) {
+    res.status(500).json({ error: `Failed to create file: ${(error as Error).message}` });
   }
 });
 

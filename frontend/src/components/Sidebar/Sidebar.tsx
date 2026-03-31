@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { useStore } from '../../store/useStore.js';
-import { analyzeProject } from '../../api/index.js';
+import { analyzeProject, createFile } from '../../api/index.js';
 import FileTree from './FileTree.js';
 import Settings from './Settings.js';
 import type { LayerType, FileType, ActiveLayer } from '../../types/index.js';
@@ -46,6 +46,7 @@ const Sidebar: React.FC = () => {
   const {
     project, setProject, settings, updateSettings, isLoading, setIsLoading, setError,
     activeLayers, toggleLayer, selectedNodeId, setSelectedNodeId,
+    addNode, setEdges,
   } = useStore();
 
   const [activeTab, setActiveTab] = useState<SidebarTab>('files');
@@ -53,6 +54,11 @@ const Sidebar: React.FC = () => {
   const [filterType, setFilterType] = useState<FileType | ''>('');
   const [filterLayer, setFilterLayer] = useState<LayerType | ''>('');
   const folderInputRef = useRef<HTMLInputElement>(null);
+
+  // New-file dialog state
+  const [showNewFile, setShowNewFile] = useState(false);
+  const [newFilePath, setNewFilePath] = useState('');
+  const [creatingFile, setCreatingFile] = useState(false);
 
   const handleAnalyze = async () => {
     if (!folderPath.trim()) return;
@@ -66,6 +72,29 @@ const Sidebar: React.FC = () => {
       setError(`Failed to analyze project: ${(err as Error).message}`);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleCreateFile = async () => {
+    if (!project || !newFilePath.trim()) return;
+    setCreatingFile(true);
+    setError(null);
+    try {
+      const { node, edges } = await createFile(
+        project.rootPath,
+        newFilePath.trim(),
+        settings.language,
+        settings.framework,
+      );
+      addNode(node);
+      setEdges(edges);
+      setNewFilePath('');
+      setShowNewFile(false);
+      setSelectedNodeId(node.id);
+    } catch (err) {
+      setError(`Failed to create file: ${(err as Error).message}`);
+    } finally {
+      setCreatingFile(false);
     }
   };
 
@@ -323,6 +352,97 @@ const Sidebar: React.FC = () => {
                 </div>
               ))}
             </div>
+
+            {project && (
+              <div style={{ padding: '6px 8px', borderTop: '1px solid #1e293b' }}>
+                {showNewFile ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    <div style={{ fontSize: '11px', color: '#94a3b8', fontWeight: 600 }}>
+                      New file path (relative to project root):
+                    </div>
+                    <input
+                      autoFocus
+                      type="text"
+                      placeholder="e.g. src/services/UserService.ts"
+                      value={newFilePath}
+                      onChange={(e) => setNewFilePath(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') handleCreateFile();
+                        if (e.key === 'Escape') { setShowNewFile(false); setNewFilePath(''); }
+                      }}
+                      style={{
+                        background: '#1e293b',
+                        border: '1px solid #334155',
+                        borderRadius: '5px',
+                        padding: '6px 8px',
+                        color: '#f1f5f9',
+                        fontSize: '11px',
+                        outline: 'none',
+                        width: '100%',
+                        boxSizing: 'border-box',
+                      }}
+                    />
+                    <div style={{ display: 'flex', gap: '5px' }}>
+                      <button
+                        onClick={handleCreateFile}
+                        disabled={creatingFile || !newFilePath.trim()}
+                        style={{
+                          flex: 1,
+                          padding: '5px',
+                          background: '#22c55e',
+                          border: 'none',
+                          borderRadius: '4px',
+                          color: '#fff',
+                          fontSize: '11px',
+                          fontWeight: 700,
+                          cursor: creatingFile ? 'wait' : 'pointer',
+                          opacity: !newFilePath.trim() ? 0.5 : 1,
+                        }}
+                      >
+                        {creatingFile ? '⏳ Creating…' : '✔ Create'}
+                      </button>
+                      <button
+                        onClick={() => { setShowNewFile(false); setNewFilePath(''); }}
+                        style={{
+                          flex: 1,
+                          padding: '5px',
+                          background: '#1e293b',
+                          border: '1px solid #334155',
+                          borderRadius: '4px',
+                          color: '#94a3b8',
+                          fontSize: '11px',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => setShowNewFile(true)}
+                    style={{
+                      width: '100%',
+                      padding: '6px',
+                      background: 'transparent',
+                      border: '1px dashed #334155',
+                      borderRadius: '5px',
+                      color: '#61dafb',
+                      fontSize: '11px',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '5px',
+                      transition: 'all 0.15s',
+                    }}
+                  >
+                    + New File
+                  </button>
+                )}
+              </div>
+            )}
 
             {project && (
               <div style={{ padding: '8px 12px', borderTop: '1px solid #1e293b', fontSize: '11px', color: '#475569', display: 'flex', gap: '12px' }}>

@@ -1,5 +1,5 @@
 import axios from 'axios';
-import type { ProjectInfo, FileNode } from '../types/index.js';
+import type { ProjectInfo, FileNode, FileEdge } from '../types/index.js';
 
 const api = axios.create({
   baseURL: '/api',
@@ -39,6 +39,16 @@ export async function generateProject(files: FileNode[], language: string, frame
 export async function scaffoldProject(projectName: string, language: string, framework: string, fileTypes: string[]): Promise<Record<string, string>> {
   const { data } = await api.post('/generate/scaffold', { projectName, language, framework, fileTypes });
   return (data as { scaffold: Record<string, string> }).scaffold;
+}
+
+export async function createFile(
+  rootPath: string,
+  filePath: string,
+  language?: string,
+  framework?: string,
+): Promise<{ node: FileNode; edges: FileEdge[] }> {
+  const { data } = await api.post('/files/create', { rootPath, filePath, language, framework });
+  return data as { node: FileNode; edges: FileEdge[] };
 }
 
 export async function checkHealth(): Promise<boolean> {
