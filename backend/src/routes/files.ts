@@ -106,6 +106,17 @@ filesRouter.post('/create', (req: Request, res: Response) => {
   }
 
   try {
+    // Resolve both paths absolutely so path-traversal sequences are collapsed
+    const resolvedRoot = path.resolve(rootPath);
+    // filePath must be treated as relative; reject any path that would escape
+    // the project root (e.g. "/etc/passwd" or "../../outside")
+    const absolutePath = path.resolve(resolvedRoot, filePath);
+
+    if (!absolutePath.startsWith(resolvedRoot + path.sep) && absolutePath !== resolvedRoot) {
+      res.status(400).json({ error: 'filePath must be inside the project root' });
+      return;
+    }
+
     const ext = path.extname(filePath).toLowerCase();
     const langMap: Record<string, string> = {
       '.ts': 'typescript', '.tsx': 'typescript', '.js': 'javascript',
@@ -118,31 +129,24 @@ filesRouter.post('/create', (req: Request, res: Response) => {
     const detectedFramework = framework || detectedLanguage;
 
     // Analyse the path (file doesn't exist yet) to infer type / layer
-    const stubNode = analyzeFile('', filePath, detectedLanguage);
+    const relativePath = path.relative(resolvedRoot, absolutePath);
+    const stubNode = analyzeFile('', relativePath, detectedLanguage);
 
     // Generate starter content from the template
     const content = generateFileContent(stubNode, detectedLanguage, detectedFramework);
 
-    // Write the new file to disk
-    const absolutePath = path.isAbsolute(filePath)
-      ? filePath
-      : path.join(rootPath, filePath);
-
     if (fs.existsSync(absolutePath)) {
-      res.status(409).json({ error: `File already exists: ${filePath}` });
+      res.status(409).json({ error: `File already exists: ${relativePath}` });
       return;
     }
 
     writeFileContent(absolutePath, content);
 
     // Re-analyse from disk so the returned node has accurate content/size
-    const relativePath = path.isAbsolute(filePath)
-      ? path.relative(rootPath, filePath)
-      : filePath;
     const node = analyzeFile(absolutePath, relativePath, detectedLanguage);
 
     // Re-compute edges for the whole project so new relationships are included
-    const allFiles = readProjectFiles(rootPath);
+    const allFiles = readProjectFiles(resolvedRoot);
     const edges = buildEdges(allFiles);
 
     res.status(201).json({ node, edges });

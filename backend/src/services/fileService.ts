@@ -116,9 +116,9 @@ function findTargetFile(importPath: string, sourceFile: string, files: FileNode[
 
   // ── Helper: resolve a base path against the file list ──────────────────────
   function resolveBase(base: string): FileNode | undefined {
-    const normalised = path.normalize(base);
+    const normalized = path.normalize(base);
     // 1. Exact match
-    const exact = files.find(f => path.normalize(f.path) === normalised);
+    const exact = files.find(f => path.normalize(f.path) === normalized);
     if (exact) return exact;
     // 2. Match with extension appended
     for (const ext of EXTS) {
